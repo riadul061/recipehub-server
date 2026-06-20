@@ -36,6 +36,22 @@ async function run() {
     const paymentsColl = db.collection("payments");
     const userColl = db.collection("user");
 
+
+    // ===== RECIPES =====
+    app.get("/api/recipes", async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 12;
+        const query = { status: { $ne: "removed" } };
+        if (req.query.category) query.category = { $in: req.query.category.split(",").map(c => c.trim()) };
+        if (req.query.search) query.recipeName = { $regex: req.query.search, $options: "i" };
+        if (req.query.featured === "true") query.isFeatured = true;
+        const total = await recipesColl.countDocuments(query);
+        const recipes = await recipesColl.find(query).sort({ [req.query.sort || "createdAt"]: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+        res.json({ recipes, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
