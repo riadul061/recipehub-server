@@ -52,6 +52,13 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+     app.get("/api/recipes/popular", async (req, res) => {
+      try {
+        const recipes = await recipesColl.find({ status: { $ne: "removed" } }).sort({ likesCount: -1 }).limit(6).toArray();
+        res.json({ recipes });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
