@@ -4,6 +4,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 dotenv.config();
 
 const uri = process.env.MONGODB_URI;
@@ -17,6 +18,20 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "10mb" }));
+
+const JWKS = createRemoteJWKSet(new URL(`${process.env.BETTER_AUTH_URL}/api/auth/jwks`));
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer")) return res.status(401).json({ msg: "Unauthorized" });
+  const token = authHeader.split(" ")[1];
+  if (!token) return res.status(401).json({ msg: "Unauthorized" });
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    req.user = payload;
+    next();
+  } catch { return res.status(401).json({ msg: "Unauthorized" }); }
+};
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -36,7 +51,6 @@ async function run() {
     const paymentsColl = db.collection("payments");
     const userColl = db.collection("user");
 
-
     // ===== RECIPES =====
     app.get("/api/recipes", async (req, res) => {
       try {
@@ -52,7 +66,7 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-     app.get("/api/recipes/popular", async (req, res) => {
+    app.get("/api/recipes/popular", async (req, res) => {
       try {
         const recipes = await recipesColl.find({ status: { $ne: "removed" } }).sort({ likesCount: -1 }).limit(6).toArray();
         res.json({ recipes });
@@ -67,10 +81,18 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    app.get("/api/recipes/my-recipes", verifyToken, async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const total = await recipesColl.countDocuments({ authorId: req.user.sub });
+        const recipes = await recipesColl.find({ authorId: req.user.sub }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+        res.json({ recipes, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
