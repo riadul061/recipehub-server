@@ -91,6 +91,21 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    app.post("/api/recipes", verifyToken, async (req, res) => {
+      try {
+        if (!req.user.isPremium) {
+          const count = await recipesColl.countDocuments({ authorId: req.user.sub });
+          if (count >= 2) return res.status(403).json({ error: "Free limit: 2 recipes. Upgrade to premium!" });
+        }
+        const { recipeName, recipeImage, category, cuisineType, difficultyLevel, preparationTime, ingredients, instructions, price } = req.body;
+        if (!recipeName || !recipeImage || !category || !cuisineType || !difficultyLevel || !preparationTime || !ingredients || !instructions)
+          return res.status(400).json({ error: "Missing fields" });
+        const doc = { recipeName, recipeImage, category, cuisineType, difficultyLevel, preparationTime, ingredients: Array.isArray(ingredients) ? ingredients : [ingredients], instructions, price: parseFloat(price) || 0, authorId: req.user.sub, authorName: req.user.name, authorEmail: req.user.email, likesCount: 0, likedBy: [], isFeatured: false, status: "active", purchasedBy: [], createdAt: new Date(), updatedAt: new Date() };
+        const result = await recipesColl.insertOne(doc);
+        res.status(201).json({ recipe: { ...doc, _id: result.insertedId } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
