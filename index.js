@@ -106,6 +106,29 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+     app.put("/api/recipes/:id", verifyToken, async (req, res) => {
+      try {
+        const recipe = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
+        if (!recipe) return res.status(404).json({ error: "Not found" });
+        if (recipe.authorId !== req.user.sub && req.user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+        delete req.body._id; delete req.body.authorId;
+        await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { ...req.body, updatedAt: new Date() } });
+        const updated = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
+        res.json({ recipe: updated });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.delete("/api/recipes/:id", verifyToken, async (req, res) => {
+      try {
+        const recipe = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
+        if (!recipe) return res.status(404).json({ error: "Not found" });
+        if (recipe.authorId !== req.user.sub && req.user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+        if (req.user.role === "admin") { await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "removed" } }); }
+        else { await recipesColl.deleteOne({ _id: new ObjectId(req.params.id) }); await favoritesColl.deleteMany({ recipeId: req.params.id }); }
+        res.json({ success: true });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
