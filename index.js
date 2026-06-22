@@ -166,6 +166,14 @@ async function run() {
       catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    // ===== REPORTS =====
+    app.post("/api/reports", verifyToken, async (req, res) => {
+      try {
+        const r = await reportsColl.insertOne({ recipeId: req.body.recipeId, reporterEmail: req.user.email, reason: req.body.reason, status: "pending", createdAt: new Date() });
+        res.status(201).json({ report: { _id: r.insertedId } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
