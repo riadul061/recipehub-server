@@ -141,6 +141,31 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+     // ===== FAVORITES =====
+    app.get("/api/favorites", verifyToken, async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1, limit = parseInt(req.query.limit) || 10;
+        const total = await favoritesColl.countDocuments({ userId: req.user.sub });
+        const data = await favoritesColl.find({ userId: req.user.sub }).sort({ addedAt: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+        const populated = await Promise.all(data.map(async f => { try { const r = await recipesColl.findOne({ _id: new ObjectId(f.recipeId) }); return { ...f, recipeId: r }; } catch { return { ...f, recipeId: null }; } }));
+        res.json({ favorites: populated, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post("/api/favorites", verifyToken, async (req, res) => {
+      try {
+        const existing = await favoritesColl.findOne({ userId: req.user.sub, recipeId: req.body.recipeId });
+        if (existing) return res.status(400).json({ error: "Already exists" });
+        const r = await favoritesColl.insertOne({ userId: req.user.sub, userEmail: req.user.email, recipeId: req.body.recipeId, addedAt: new Date() });
+        res.status(201).json({ favorite: { _id: r.insertedId } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.delete("/api/favorites/:recipeId", verifyToken, async (req, res) => {
+      try { await favoritesColl.deleteOne({ userId: req.user.sub, recipeId: req.params.recipeId }); res.json({ success: true }); }
+      catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
