@@ -73,14 +73,6 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    app.get("/api/recipes/:id", async (req, res) => {
-      try {
-        const recipe = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
-        if (!recipe) return res.status(404).json({ error: "Not found" });
-        res.json({ recipe });
-      } catch (e) { res.status(500).json({ error: e.message }); }
-    });
-
     app.get("/api/recipes/my-recipes", verifyToken, async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
@@ -88,6 +80,14 @@ async function run() {
         const total = await recipesColl.countDocuments({ authorId: req.user.sub });
         const recipes = await recipesColl.find({ authorId: req.user.sub }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray();
         res.json({ recipes, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.get("/api/recipes/:id", async (req, res) => {
+      try {
+        const recipe = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
+        if (!recipe) return res.status(404).json({ error: "Not found" });
+        res.json({ recipe });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
@@ -106,7 +106,7 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-     app.put("/api/recipes/:id", verifyToken, async (req, res) => {
+    app.put("/api/recipes/:id", verifyToken, async (req, res) => {
       try {
         const recipe = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
         if (!recipe) return res.status(404).json({ error: "Not found" });
@@ -129,10 +129,21 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    app.post("/api/recipes/:id/like", verifyToken, async (req, res) => {
+      try {
+        const recipe = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
+        if (!recipe) return res.status(404).json({ error: "Not found" });
+        const liked = recipe.likedBy?.includes(req.user.sub);
+        if (liked) { await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $pull: { likedBy: req.user.sub }, $inc: { likesCount: -1 } }); }
+        else { await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $addToSet: { likedBy: req.user.sub }, $inc: { likesCount: 1 } }); }
+        const updated = await recipesColl.findOne({ _id: new ObjectId(req.params.id) });
+        res.json({ likesCount: updated.likesCount, liked: !liked });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
-    // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
