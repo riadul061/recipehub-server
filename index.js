@@ -231,17 +231,17 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    // // ===== ADMIN =====
-    // app.get("/api/admin/dashboard", verifyToken, verifyAdmin, async (req, res) => {
-    //   try {
-    //     const [totalUsers, totalRecipes, premiumUsers, totalReports] = await Promise.all([
-    //       userColl.countDocuments(), recipesColl.countDocuments(),
-    //       userColl.countDocuments({ isPremium: true }),
-    //       reportsColl.countDocuments({ status: "pending" }),
-    //     ]);
-    //     res.json({ totalUsers, totalRecipes, premiumUsers, totalReports });
-    //   } catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    // ===== ADMIN =====
+    app.get("/api/admin/dashboard", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const [totalUsers, totalRecipes, premiumUsers, totalReports] = await Promise.all([
+          userColl.countDocuments(), recipesColl.countDocuments(),
+          userColl.countDocuments({ isPremium: true }),
+          reportsColl.countDocuments({ status: "pending" }),
+        ]);
+        res.json({ totalUsers, totalRecipes, premiumUsers, totalReports });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
     // app.get("/api/admin/users", verifyToken, verifyAdmin, async (req, res) => {
     //   try { const users = await userColl.find({}).toArray(); res.json({ users }); }
