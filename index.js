@@ -243,15 +243,15 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    // app.get("/api/admin/users", verifyToken, verifyAdmin, async (req, res) => {
-    //   try { const users = await userColl.find({}).toArray(); res.json({ users }); }
-    //   catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.get("/api/admin/users", verifyToken, verifyAdmin, async (req, res) => {
+      try { const users = await userColl.find({}).toArray(); res.json({ users }); }
+      catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
-    // app.put("/api/admin/users/:id/toggle-block", verifyToken, verifyAdmin, async (req, res) => {
-    //   try { await userColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isBlocked: req.body.isBlocked } }); res.json({ success: true }); }
-    //   catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.put("/api/admin/users/:id/toggle-block", verifyToken, verifyAdmin, async (req, res) => {
+      try { await userColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isBlocked: req.body.isBlocked } }); res.json({ success: true }); }
+      catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
     // app.get("/api/admin/recipes", verifyToken, verifyAdmin, async (req, res) => {
     //   try { const recipes = await recipesColl.find({}).sort({ createdAt: -1 }).toArray(); res.json({ recipes }); }
