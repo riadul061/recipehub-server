@@ -5,18 +5,16 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
+const Stripe = require("stripe");
 dotenv.config();
 
 const uri = process.env.MONGODB_URI;
 const app = express();
 const PORT = process.env.PORT || 5000;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-app.use(
-  cors({
-    credentials: true,
-    origin: [process.env.CLIENT_URL],
-  }),
-);
+app.use(cors({ credentials: true, origin: [process.env.CLIENT_URL] }));
+app.use("/api/webhooks", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "10mb" }));
 
 const JWKS = createRemoteJWKSet(new URL(`${process.env.BETTER_AUTH_URL}/api/auth/jwks`));
@@ -34,11 +32,7 @@ const verifyToken = async (req, res, next) => {
 };
 
 const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
+  serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true },
 });
 
 async function run() {
@@ -50,6 +44,11 @@ async function run() {
     const reportsColl = db.collection("reports");
     const paymentsColl = db.collection("payments");
     const userColl = db.collection("user");
+
+    const verifyAdmin = async (req, res, next) => {
+      if (req.user?.role !== "admin") return res.status(403).json({ msg: "Forbidden" });
+      next();
+    };
 
     // ===== RECIPES =====
     app.get("/api/recipes", async (req, res) => {
@@ -73,6 +72,7 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    // ⚠️ my-recipes কে :id এর আগে রাখতে হবে
     app.get("/api/recipes/my-recipes", verifyToken, async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
@@ -141,7 +141,7 @@ async function run() {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-     // ===== FAVORITES =====
+    // ===== FAVORITES =====
     app.get("/api/favorites", verifyToken, async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1, limit = parseInt(req.query.limit) || 10;
@@ -173,6 +173,123 @@ async function run() {
         res.status(201).json({ report: { _id: r.insertedId } });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
+
+    // ===== STRIPE =====
+    app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
+      try {
+        const { recipeId, type } = req.body;
+        let lineItems, metadata = { userId: req.user.sub, userEmail: req.user.email, type: type || "recipe_purchase" };
+        if (type === "premium") {
+          lineItems = [{ price_data: { currency: "usd", product_data: { name: "RecipeHub Premium" }, unit_amount: 999 }, quantity: 1 }];
+        } else if (recipeId) {
+          const recipe = await recipesColl.findOne({ _id: new ObjectId(recipeId) });
+          if (!recipe) return res.status(404).json({ error: "Not found" });
+          const price = recipe.price > 0 ? recipe.price : 4.99;
+          lineItems = [{ price_data: { currency: "usd", product_data: { name: recipe.recipeName }, unit_amount: Math.round(price * 100) }, quantity: 1 }];
+          metadata.recipeId = recipeId;
+        } else return res.status(400).json({ error: "Invalid" });
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"], line_items: lineItems, mode: "payment",
+          success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_URL}/`, metadata,
+        });
+        res.json({ url: session.url });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post("/api/webhooks/stripe", async (req, res) => {
+      try {
+        const sig = req.headers["stripe-signature"];
+        const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+        if (event.type === "checkout.session.completed") {
+          const session = event.data.object;
+          const { userId, userEmail, type, recipeId } = session.metadata;
+          await paymentsColl.insertOne({ userId, userEmail, amount: session.amount_total / 100, transactionId: session.id, paymentStatus: "completed", recipeId: recipeId || null, type: type || "recipe_purchase", paidAt: new Date() });
+          if (type === "premium") { await userColl.updateOne({ _id: new ObjectId(userId) }, { $set: { isPremium: true } }); }
+          else if (recipeId) { await recipesColl.updateOne({ _id: new ObjectId(recipeId) }, { $addToSet: { purchasedBy: userId } }); }
+        }
+        res.json({ received: true });
+      } catch (e) { res.status(400).json({ error: e.message }); }
+    });
+
+    // ===== USER =====
+    app.get("/api/user/purchases", verifyToken, async (req, res) => {
+      try {
+        const data = await paymentsColl.find({ userId: req.user.sub, type: "recipe_purchase" }).sort({ paidAt: -1 }).toArray();
+        const populated = await Promise.all(data.map(async p => { try { const r = p.recipeId ? await recipesColl.findOne({ _id: new ObjectId(p.recipeId) }) : null; return { ...p, recipeId: r }; } catch { return { ...p, recipeId: null }; } }));
+        res.json({ purchases: populated });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.get("/api/user/stats", verifyToken, async (req, res) => {
+      try {
+        const totalRecipes = await recipesColl.countDocuments({ authorId: req.user.sub });
+        const totalFavorites = await favoritesColl.countDocuments({ userId: req.user.sub });
+        const userRecipes = await recipesColl.find({ authorId: req.user.sub }).toArray();
+        const totalLikes = userRecipes.reduce((s, r) => s + (r.likesCount || 0), 0);
+        res.json({ totalRecipes, totalFavorites, totalLikes });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    // // ===== ADMIN =====
+    // app.get("/api/admin/dashboard", verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const [totalUsers, totalRecipes, premiumUsers, totalReports] = await Promise.all([
+    //       userColl.countDocuments(), recipesColl.countDocuments(),
+    //       userColl.countDocuments({ isPremium: true }),
+    //       reportsColl.countDocuments({ status: "pending" }),
+    //     ]);
+    //     res.json({ totalUsers, totalRecipes, premiumUsers, totalReports });
+    //   } catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.get("/api/admin/users", verifyToken, verifyAdmin, async (req, res) => {
+    //   try { const users = await userColl.find({}).toArray(); res.json({ users }); }
+    //   catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.put("/api/admin/users/:id/toggle-block", verifyToken, verifyAdmin, async (req, res) => {
+    //   try { await userColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isBlocked: req.body.isBlocked } }); res.json({ success: true }); }
+    //   catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.get("/api/admin/recipes", verifyToken, verifyAdmin, async (req, res) => {
+    //   try { const recipes = await recipesColl.find({}).sort({ createdAt: -1 }).toArray(); res.json({ recipes }); }
+    //   catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.patch("/api/admin/recipes/:id/feature", verifyToken, verifyAdmin, async (req, res) => {
+    //   try { await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isFeatured: req.body.isFeatured } }); res.json({ success: true }); }
+    //   catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const data = await reportsColl.find({}).sort({ createdAt: -1 }).toArray();
+    //     const populated = await Promise.all(data.map(async r => { try { const recipe = await recipesColl.findOne({ _id: new ObjectId(r.recipeId) }); return { ...r, recipeId: recipe }; } catch { return { ...r, recipeId: null }; } }));
+    //     res.json({ reports: populated });
+    //   } catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.patch("/api/admin/reports/:id", verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     if (req.body.action === "dismiss") { await reportsColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "dismissed" } }); }
+    //     else if (req.body.action === "remove_recipe") {
+    //       const report = await reportsColl.findOne({ _id: new ObjectId(req.params.id) });
+    //       if (report) { await recipesColl.updateOne({ _id: new ObjectId(report.recipeId) }, { $set: { status: "removed" } }); await reportsColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "resolved" } }); }
+    //     }
+    //     res.json({ success: true });
+    //   } catch (e) { res.status(500).json({ error: e.message }); }
+    // });
+
+    // app.get("/api/admin/transactions", verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const page = parseInt(req.query.page) || 1, limit = parseInt(req.query.limit) || 10;
+    //     const total = await paymentsColl.countDocuments();
+    //     const data = await paymentsColl.find({}).sort({ paidAt: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+    //     res.json({ transactions: data, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+    //   } catch (e) { res.status(500).json({ error: e.message }); }
+    // });
 
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
