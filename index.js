@@ -253,15 +253,15 @@ async function run() {
       catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    // app.get("/api/admin/recipes", verifyToken, verifyAdmin, async (req, res) => {
-    //   try { const recipes = await recipesColl.find({}).sort({ createdAt: -1 }).toArray(); res.json({ recipes }); }
-    //   catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.get("/api/admin/recipes", verifyToken, verifyAdmin, async (req, res) => {
+      try { const recipes = await recipesColl.find({}).sort({ createdAt: -1 }).toArray(); res.json({ recipes }); }
+      catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
-    // app.patch("/api/admin/recipes/:id/feature", verifyToken, verifyAdmin, async (req, res) => {
-    //   try { await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isFeatured: req.body.isFeatured } }); res.json({ success: true }); }
-    //   catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.patch("/api/admin/recipes/:id/feature", verifyToken, verifyAdmin, async (req, res) => {
+      try { await recipesColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isFeatured: req.body.isFeatured } }); res.json({ success: true }); }
+      catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
     // app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
     //   try {
