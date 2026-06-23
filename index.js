@@ -263,33 +263,33 @@ async function run() {
       catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    // app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
-    //   try {
-    //     const data = await reportsColl.find({}).sort({ createdAt: -1 }).toArray();
-    //     const populated = await Promise.all(data.map(async r => { try { const recipe = await recipesColl.findOne({ _id: new ObjectId(r.recipeId) }); return { ...r, recipeId: recipe }; } catch { return { ...r, recipeId: null }; } }));
-    //     res.json({ reports: populated });
-    //   } catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const data = await reportsColl.find({}).sort({ createdAt: -1 }).toArray();
+        const populated = await Promise.all(data.map(async r => { try { const recipe = await recipesColl.findOne({ _id: new ObjectId(r.recipeId) }); return { ...r, recipeId: recipe }; } catch { return { ...r, recipeId: null }; } }));
+        res.json({ reports: populated });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
-    // app.patch("/api/admin/reports/:id", verifyToken, verifyAdmin, async (req, res) => {
-    //   try {
-    //     if (req.body.action === "dismiss") { await reportsColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "dismissed" } }); }
-    //     else if (req.body.action === "remove_recipe") {
-    //       const report = await reportsColl.findOne({ _id: new ObjectId(req.params.id) });
-    //       if (report) { await recipesColl.updateOne({ _id: new ObjectId(report.recipeId) }, { $set: { status: "removed" } }); await reportsColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "resolved" } }); }
-    //     }
-    //     res.json({ success: true });
-    //   } catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.patch("/api/admin/reports/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        if (req.body.action === "dismiss") { await reportsColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "dismissed" } }); }
+        else if (req.body.action === "remove_recipe") {
+          const report = await reportsColl.findOne({ _id: new ObjectId(req.params.id) });
+          if (report) { await recipesColl.updateOne({ _id: new ObjectId(report.recipeId) }, { $set: { status: "removed" } }); await reportsColl.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: "resolved" } }); }
+        }
+        res.json({ success: true });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
-    // app.get("/api/admin/transactions", verifyToken, verifyAdmin, async (req, res) => {
-    //   try {
-    //     const page = parseInt(req.query.page) || 1, limit = parseInt(req.query.limit) || 10;
-    //     const total = await paymentsColl.countDocuments();
-    //     const data = await paymentsColl.find({}).sort({ paidAt: -1 }).skip((page - 1) * limit).limit(limit).toArray();
-    //     res.json({ transactions: data, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
-    //   } catch (e) { res.status(500).json({ error: e.message }); }
-    // });
+    app.get("/api/admin/transactions", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1, limit = parseInt(req.query.limit) || 10;
+        const total = await paymentsColl.countDocuments();
+        const data = await paymentsColl.find({}).sort({ paidAt: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+        res.json({ transactions: data, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
